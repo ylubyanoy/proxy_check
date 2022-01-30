@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
@@ -11,6 +12,11 @@ import (
 
 	"ylubyanoy/proxy_check/internal/config"
 )
+
+type Proxy struct {
+	ip   string
+	port string
+}
 
 type customTransport struct {
 	dialer    *net.Dialer
@@ -53,43 +59,61 @@ func main() {
 		)
 	}
 
-	url := "94.228.192.197:8087"
+	const numJobs = 3
+	jobs := make(chan string, numJobs)
+	results := make(chan string, numJobs)
 
-	fmt.Println("Проверяем адрес ", url)
+	var urls []Proxy
+	urls = append(urls, Proxy{ip: "185.221.160.176", port: "80"})
+	urls = append(urls, Proxy{ip: "185.200.190.211", port: "80"})
+	urls = append(urls, Proxy{ip: "185.174.138.19", port: "80"})
+	urls = append(urls, Proxy{ip: "91.224.62.194", port: "8080"})
+	urls = append(urls, Proxy{ip: "185.221.161.85", port: "80"})
 
-	tr := newTransport()
-	conn, err := tr.dial("tcp", url)
-	if err != nil {
-		fmt.Printf("Ошибка соединения. %s\n", err)
-		return
+	var wg sync.WaitGroup
+	t1 := time.Now()
+
+	go func(wg *sync.WaitGroup) {
+		wg.Wait()
+		close(results)
+	}(&wg)
+
+	for a := 1; a <= numJobs; a++ {
+		wg.Add(1)
+		go worker(&wg, jobs, results)
 	}
-	defer conn.Close()
 
-	res := int64(tr.ConnDuration() / time.Millisecond)
-	fmt.Printf("ConnDuration: %dms\n", res)
-	fmt.Printf("ConnDuration: %s\n", tr.ConnDuration())
+	for _, url_item := range urls {
+		url := url_item.ip + ":" + url_item.port
+		jobs <- url
+	}
+	close(jobs)
 
-	// conn, err := net.Dial("tcp", url)
-	// if err != nil {
-	// 	fmt.Printf("Ошибка соединения. %s\n", err)
-	// 	return
-	// }
-	// defer conn.Close()
-	// conn.Write([]byte("GET / HTTP/1.0\r\n\r\n"))
+	for res := range results {
+		fmt.Printf("%s", res)
+	}
+	fmt.Printf("Elapsed time: %s\n", time.Since(t1))
+}
 
-	// start := time.Now()
-	// oneByte := make([]byte, 1)
-	// _, err = conn.Read(oneByte)
-	// if err != nil {
-	// 	fmt.Printf("Ошибка соединения. %s\n", err)
-	// 	return
-	// }
-	// fmt.Println("First byte:", time.Since(start))
+func worker(wg *sync.WaitGroup, jobs, results chan string) {
+	defer wg.Done()
 
-	// _, err = ioutil.ReadAll(conn)
-	// if err != nil {
-	// 	panic(err)
-	// }
-	// fmt.Println("Everything:", time.Since(start))
+	for u := range jobs {
+		msg := fmt.Sprintf("Проверяем адрес %s - ", u)
 
+		tr := newTransport()
+		conn, err := tr.dial("tcp", u)
+		if err != nil {
+			msg += fmt.Sprintf("Err: Ошибка соединения. %s\n", err)
+			results <- msg
+			return
+		}
+		conn.Close()
+
+		res := int64(tr.ConnDuration() / time.Millisecond)
+		msg += fmt.Sprintf("ConnDuration: %dms, ", res)
+		msg += fmt.Sprintf("ConnDuration: %s\n", tr.ConnDuration())
+
+		results <- msg
+	}
 }
