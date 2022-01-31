@@ -11,11 +11,12 @@ import (
 	"go.uber.org/zap"
 
 	"ylubyanoy/proxy_check/internal/config"
+	"ylubyanoy/proxy_check/internal/store/postgres"
 )
 
-type Proxy struct {
-	ip   string
-	port string
+type proxyItem struct {
+	pID int
+	url string
 }
 
 type customTransport struct {
@@ -59,61 +60,81 @@ func main() {
 		)
 	}
 
-	const numJobs = 3
-	jobs := make(chan string, numJobs)
-	results := make(chan string, numJobs)
+	databaseURL := fmt.Sprintf("postgres://%s:%s@%s:5432/%s?sslmode=disable", cfg.DB_USER, cfg.DB_PASSWORD, cfg.DB_HOST, cfg.DB_NAME)
+	pgstore, err := postgres.New(databaseURL)
+	if err != nil {
+		logger.Fatal("store db error",
+			zap.String("data", databaseURL),
+			zap.Error(err),
+		)
+	}
 
-	var urls []Proxy
-	urls = append(urls, Proxy{ip: "185.221.160.176", port: "80"})
-	urls = append(urls, Proxy{ip: "185.200.190.211", port: "80"})
-	urls = append(urls, Proxy{ip: "185.174.138.19", port: "80"})
-	urls = append(urls, Proxy{ip: "91.224.62.194", port: "8080"})
-	urls = append(urls, Proxy{ip: "185.221.161.85", port: "80"})
+	res, err := pgstore.Proxy().GetList(30, 0)
+	if err != nil {
+		logger.Fatal("proxy error",
+			zap.String("data", "30, 0"),
+			zap.Error(err),
+		)
+	}
+
+	const numJobs = 10
+	jobs := make(chan proxyItem, numJobs)
+
+	// var urls []Proxy
+	// urls = append(urls, Proxy{ip: "185.221.160.176", port: "80"})
+	// urls = append(urls, Proxy{ip: "185.200.190.211", port: "80"})
+	// urls = append(urls, Proxy{ip: "185.174.138.19", port: "80"})
+	// urls = append(urls, Proxy{ip: "91.224.62.194", port: "8080"})
+	// urls = append(urls, Proxy{ip: "185.221.161.85", port: "80"})
 
 	var wg sync.WaitGroup
 	t1 := time.Now()
 
-	go func(wg *sync.WaitGroup) {
-		wg.Wait()
-		close(results)
-	}(&wg)
-
 	for a := 1; a <= numJobs; a++ {
 		wg.Add(1)
-		go worker(&wg, jobs, results)
+		go worker(&wg, jobs, pgstore)
 	}
 
-	for _, url_item := range urls {
-		url := url_item.ip + ":" + url_item.port
-		jobs <- url
+	for _, url_item := range res {
+		url := url_item.IPAddr + ":" + url_item.Port
+		var pItem proxyItem = proxyItem{
+			pID: url_item.ID,
+			url: url,
+		}
+		jobs <- pItem
 	}
 	close(jobs)
 
-	for res := range results {
-		fmt.Printf("%s", res)
-	}
+	wg.Wait()
 	fmt.Printf("Elapsed time: %s\n", time.Since(t1))
 }
 
-func worker(wg *sync.WaitGroup, jobs, results chan string) {
+func worker(wg *sync.WaitGroup, jobs chan proxyItem, pgstore *postgres.PGStore) {
 	defer wg.Done()
 
 	for u := range jobs {
-		msg := fmt.Sprintf("Проверяем адрес %s - ", u)
+		msg := fmt.Sprintf("Проверяем адрес %s - ", u.url)
 
 		tr := newTransport()
-		conn, err := tr.dial("tcp", u)
+		conn, err := tr.dial("tcp", u.url)
 		if err != nil {
 			msg += fmt.Sprintf("Err: Ошибка соединения. %s\n", err)
-			results <- msg
-			return
+			fmt.Print(msg)
+			continue
 		}
 		conn.Close()
 
 		res := int64(tr.ConnDuration() / time.Millisecond)
-		msg += fmt.Sprintf("ConnDuration: %dms, ", res)
-		msg += fmt.Sprintf("ConnDuration: %s\n", tr.ConnDuration())
+		msg += fmt.Sprintf("ConnDuration: %dms, Status: ", res)
 
-		results <- msg
+		err = pgstore.Proxy().Update(u.pID, int(res), time.Now())
+		if err != nil {
+			msg += fmt.Sprintf("ошибка сохранения результата. %s\n", err)
+			fmt.Print(msg)
+			continue
+		}
+		msg += "cохранено.\n"
+
+		fmt.Print(msg)
 	}
 }
