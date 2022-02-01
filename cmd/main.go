@@ -10,6 +10,8 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/go-co-op/gocron"
+
 	"ylubyanoy/proxy_check/internal/config"
 	"ylubyanoy/proxy_check/internal/store/postgres"
 )
@@ -47,10 +49,21 @@ func (tr *customTransport) ConnDuration() time.Duration {
 }
 
 func main() {
+	MoscowTZ, _ := time.LoadLocation("Europe/Moscow")
+	s := gocron.NewScheduler(MoscowTZ)
+
+	j, err := s.Cron("*/1 * * * *").Do(pingCheck)
+
+	s.StartBlocking()
+	fmt.Printf("Job: %v, Error: %v\n", j, err)
+}
+
+func pingCheck() {
+	fmt.Println("Start Job")
+
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	// Read config files
 	cfg := config.NewConfig()
 	err := cleanenv.ReadConfig("configs/config.yml", cfg)
 	if err != nil {
