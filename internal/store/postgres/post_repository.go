@@ -24,6 +24,22 @@ func (r *ProxyRepository) Update(pID, pingCheck int, dateCheck time.Time) error 
 	).Scan(&pID)
 }
 
+// Count ...
+func (r *ProxyRepository) Count() (int, error) {
+	var cnt int
+	err := r.pgstore.conn.QueryRow(
+		context.Background(),
+		"SELECT count(id) FROM proxy_api_proxy",
+	).Scan(&cnt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return 0, store.ErrRecordNotFound
+		}
+		return 0, err
+	}
+	return cnt, nil
+}
+
 // Find ...
 func (r *ProxyRepository) Find(url string) ([]store.Proxy, error) {
 	var proxies []store.Proxy

@@ -4,4 +4,5 @@ package store
 type ProxyRepository interface {
 	Update(*Proxy) error
 	Find(string) (*Proxy, error)
+	Count() (int, error)
 }

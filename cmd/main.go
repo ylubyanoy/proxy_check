@@ -69,41 +69,55 @@ func main() {
 		)
 	}
 
-	res, err := pgstore.Proxy().GetList(30, 0)
+	cnt, err := pgstore.Proxy().Count()
 	if err != nil {
 		logger.Fatal("proxy error",
-			zap.String("data", "30, 0"),
+			zap.String("data", "Count"),
 			zap.Error(err),
 		)
 	}
+	if cnt == 0 {
+		logger.Info("no proxy to process")
+		return
+	}
 
-	const numJobs = 10
-	jobs := make(chan proxyItem, numJobs)
+	offset := 0
+	limit := 50
 
-	// var urls []Proxy
-	// urls = append(urls, Proxy{ip: "185.221.160.176", port: "80"})
-	// urls = append(urls, Proxy{ip: "185.200.190.211", port: "80"})
-	// urls = append(urls, Proxy{ip: "185.174.138.19", port: "80"})
-	// urls = append(urls, Proxy{ip: "91.224.62.194", port: "8080"})
-	// urls = append(urls, Proxy{ip: "185.221.161.85", port: "80"})
-
-	var wg sync.WaitGroup
 	t1 := time.Now()
+	var wg sync.WaitGroup
 
-	for a := 1; a <= numJobs; a++ {
-		wg.Add(1)
-		go worker(&wg, jobs, pgstore)
-	}
+	for offset < cnt {
 
-	for _, url_item := range res {
-		url := url_item.IPAddr + ":" + url_item.Port
-		var pItem proxyItem = proxyItem{
-			pID: url_item.ID,
-			url: url,
+		res, err := pgstore.Proxy().GetList(limit, offset)
+		if err != nil {
+			logger.Fatal("proxy error",
+				zap.Int("limit", limit),
+				zap.Int("offset", offset),
+				zap.Error(err),
+			)
 		}
-		jobs <- pItem
+
+		const numJobs = 30
+		jobs := make(chan proxyItem, numJobs)
+
+		for a := 1; a <= numJobs; a++ {
+			wg.Add(1)
+			go worker(&wg, jobs, pgstore)
+		}
+
+		for _, url_item := range res {
+			url := url_item.IPAddr + ":" + url_item.Port
+			var pItem proxyItem = proxyItem{
+				pID: url_item.ID,
+				url: url,
+			}
+			jobs <- pItem
+		}
+		close(jobs)
+
+		offset += limit
 	}
-	close(jobs)
 
 	wg.Wait()
 	fmt.Printf("Elapsed time: %s\n", time.Since(t1))
