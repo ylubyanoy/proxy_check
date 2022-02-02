@@ -1,0 +1,15 @@
+version: '3.7'
+
+networks:
+  default:
+    external:
+      name: cod-services-network
+
+services:
+    app:
+        build:
+          context: .
+          dockerfile: Dockerfile
+        restart: unless-stopped
+        ports:
+          - "8000:8000"
