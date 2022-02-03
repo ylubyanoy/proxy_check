@@ -49,10 +49,10 @@ func (tr *customTransport) ConnDuration() time.Duration {
 }
 
 func main() {
-	MoscowTZ, _ := time.LoadLocation("Europe/Moscow")
-	s := gocron.NewScheduler(MoscowTZ)
+	// MoscowTZ, _ := time.LoadLocation("Europe/Moscow")
+	s := gocron.NewScheduler(time.UTC)
 
-	j, err := s.Cron("*/1 * * * *").Do(pingCheck)
+	j, err := s.Cron("* */4 * * *").Do(pingCheck)
 
 	s.StartBlocking()
 	fmt.Printf("Job: %v, Error: %v\n", j, err)
